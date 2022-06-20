@@ -14,9 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"go-wikitionary-parse/lib/wikitemplates"
+
 	"github.com/macdub/go-colorlog"
 	_ "github.com/mattn/go-sqlite3"
-	"go-wikitionary-parse/lib/wikitemplates"
 )
 
 var (
@@ -75,7 +76,17 @@ type Insert struct {
 	CatDefs   map[string][]string
 }
 
+type mapFlags map[string]bool
+
+func (i *mapFlags) String() string { return "" }
+
+func (i *mapFlags) Set(value string) error {
+	(*i)[value] = true
+	return nil
+}
+
 func main() {
+	excludedCats := &mapFlags{}
 	iFile := flag.String("file", "", "XML file to parse")
 	db := flag.String("database", "database.db", "Database file to use")
 	lang := flag.String("lang", "English", "Language to target for parsing")
@@ -86,6 +97,7 @@ func main() {
 	makeCache := flag.Bool("make_cache", false, "Make a cache file of the parsed XML")
 	purge := flag.Bool("purge", false, "Purge the selected database")
 	verbose := flag.Bool("verbose", false, "Use verbose logging")
+	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
 	flag.Parse()
 
 	if *logFile != "" {
@@ -96,6 +108,10 @@ func main() {
 
 	if *verbose {
 		logger.SetLogLevel(colorlog.Ldebug)
+	}
+
+	if len(*excludedCats) > 0 {
+		lexicalCategory = findAndDelete(lexicalCategory, *excludedCats)
 	}
 
 	language = *lang
@@ -611,4 +627,16 @@ func adjustIndexLW(index int, text []byte) int {
 		index++
 	}
 	return index
+}
+
+// Remove excluded lexical categories
+func findAndDelete(cats []string, excludedCats map[string]bool) []string {
+	index := 0
+	for _, cat := range cats {
+		if excluded, exists := excludedCats[cat]; !exists || !excluded {
+			cats[index] = cat
+			index++
+		}
+	}
+	return cats[:index]
 }
