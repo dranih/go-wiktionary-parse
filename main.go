@@ -13,11 +13,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"go-wikitionary-parse/lib/wikitemplates"
 
 	"github.com/macdub/go-colorlog"
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -47,6 +51,9 @@ var (
 		"Verb", "Article", "Particle", "Conjunction",
 		"Pronoun", "Determiner", "Interjection", "Morpheme",
 		"Numeral", "Preposition", "Postposition"}
+	minLetters int  = 0
+	maxDefs    int  = 0
+	rmAccents  bool = false
 )
 
 type WikiData struct {
@@ -97,6 +104,9 @@ func main() {
 	makeCache := flag.Bool("make_cache", false, "Make a cache file of the parsed XML")
 	purge := flag.Bool("purge", false, "Purge the selected database")
 	verbose := flag.Bool("verbose", false, "Use verbose logging")
+	minLettersArg := flag.Int("min_letters", 0, "Minimum number of letter to keep a word")
+	maxDefsArg := flag.Int("max_defs", 0, "Maximum number of definition to keep for a word for an etymology")
+	rmAccentsArg := flag.Bool("rm_accents", false, "Remove accents from word")
 	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
 	flag.Parse()
 
@@ -115,6 +125,9 @@ func main() {
 	}
 
 	language = *lang
+	minLetters = *minLettersArg
+	maxDefs = *maxDefsArg
+	rmAccents = *rmAccentsArg
 
 	start_time := time.Now()
 	logger.Info("+--------------------------------------------------\n")
@@ -211,6 +224,11 @@ func pageWorker(id int, wg *sync.WaitGroup, pages []Page, dbh *sql.DB) {
 	inserts := []*Insert{} // etymology : lexical category : [definitions...]
 	for _, page := range pages {
 		word := page.Title
+		if rmAccents {
+			if wordA, err := removeAccents(word); err == nil {
+				word = wordA
+			}
+		}
 		logger.Debug("Processing page: %s\n", word)
 
 		// convert the text to a byte string
@@ -288,6 +306,10 @@ func performInserts(dbh *sql.DB, inserts []*Insert) int {
 		for key, val := range ins.CatDefs {
 			category := key
 			for def_no, def := range val {
+				if def_no >= maxDefs {
+					logger.Debug("Skipping definition (def_no > max_defs argument)\n")
+					continue
+				}
 				logger.Debug("performInserts> Inserting values: word=>'%s', lexical category=>'%s', et_no=>'%d', def_no=>'%d', def=>'%s'\n",
 					ins.Word, category, ins.Etymology, def_no, def)
 				_, err := sth.Exec(ins.Word, category, ins.Etymology, def_no, def)
@@ -507,13 +529,18 @@ func getLanguageSection(text []byte) []byte {
 }
 
 // filter out the pages that are not words in the desired language
+// also filter word shorter than minLetters
 func filterPages(wikidata *WikiData) {
 	engCheck := regexp.MustCompile(fmt.Sprintf(`==%s==`, language))
 	spaceCheck := regexp.MustCompile(`[:0-9]`)
+
 	skipCount := 0
 	i := 0
 	for i < len(wikidata.Pages) {
-		if !engCheck.MatchString(wikidata.Pages[i].Revisions[0].Text) || spaceCheck.MatchString(wikidata.Pages[i].Title) {
+		if !engCheck.MatchString(wikidata.Pages[i].Revisions[0].Text) ||
+			spaceCheck.MatchString(wikidata.Pages[i].Title) ||
+
+			(minLetters > 0 && len([]rune(wikidata.Pages[i].Title)) < minLetters) {
 			// remove the entry from the array
 			wikidata.Pages[i] = wikidata.Pages[len(wikidata.Pages)-1]
 			wikidata.Pages = wikidata.Pages[:len(wikidata.Pages)-1]
@@ -639,4 +666,15 @@ func findAndDelete(cats []string, excludedCats map[string]bool) []string {
 		}
 	}
 	return cats[:index]
+}
+
+// Remove accents
+func removeAccents(str string) (string, error) {
+	var normalizer = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+
+	s, _, err := transform.String(normalizer, str)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(s), err
 }
