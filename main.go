@@ -25,15 +25,43 @@ import (
 )
 
 var (
+	//Localisation
+	regexLocal map[string]map[string]string = map[string]map[string]string{
+		"en": {
+			"wikiLang":       `(\s==|^==)[\w\s]+==`,
+			"wikiLexM":       `(?:\s====|^====)([\w\s]+)====`,
+			"wikiLexS":       `(?:\s===|^===)([\w\s]+)===`,
+			"wikiEtymologyS": `(\s===|^===)Etymology===`,
+			"wikiEtymologyM": `(\s===|^===)Etymology \d+===`,
+		},
+		"fr": {
+			"wikiLang":       `(\s==|^==) {{langue\|[\w]+}} ==`,                       //ie : == {{langue|fr}} ==
+			"wikiLexM":       `(?:\s====|^====) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ====`, //ie : ==== {{S|nom|frm|num=1}} ====
+			"wikiLexS":       `(?:\s===|^===) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ===`,    //ie : === {{S|nom|frm|num=1}} ===
+			"wikiEtymologyS": `(\s===|^===) {{S\|étymologie}} ===`,                    //ie : === {{S|étymologie}} ===
+			"wikiEtymologyM": `(\s====|^====) {{S\|étymologie}} ====`,
+		},
+	}
+	lexicalLocal map[string][]string = map[string][]string{
+		"en": {"Proper noun", "Noun", "Adjective", "Adverb",
+			"Verb", "Article", "Particle", "Conjunction",
+			"Pronoun", "Determiner", "Interjection", "Morpheme",
+			"Numeral", "Preposition", "Postposition"},
+		"fr": {"nom propre", "nom", "adjectif", "adj", "adverbe",
+			"verbe", "article défini", "article indéfini", "article partitif", "conjonction",
+			"pronom indéfini", "pronom relatif", "pronom interrogatif", "pronom personnel", "pronom", "pronom possessif", "Determiner", "interjection",
+			"préposition", "suffixe", "préfixe", "symbole"},
+	}
 	// regex pointers
-	wikiLang       *regexp.Regexp = regexp.MustCompile(`(\s==|^==)[\w\s]+==`)          // most languages are a single word; there are some that are multiple words
-	wikiLexM       *regexp.Regexp = regexp.MustCompile(`(\s====|^====)[\w\s]+====`)    // lexical category could be multi-word (e.g. "Proper Noun") match for multi-etymology
-	wikiLexS       *regexp.Regexp = regexp.MustCompile(`(\s===|^===)[\w\s]+===`)       // lexical category match for single etymology
-	wikiEtymologyS *regexp.Regexp = regexp.MustCompile(`(\s===|^===)Etymology===`)     // check for singular etymology
-	wikiEtymologyM *regexp.Regexp = regexp.MustCompile(`(\s===|^===)Etymology \d+===`) // these heading may or may not have a number designation
-	wikiNumListAny *regexp.Regexp = regexp.MustCompile(`\s##?[\*:]*? `)                // used to find all num list indices
-	wikiNumList    *regexp.Regexp = regexp.MustCompile(`\s#[^:\*] `)                   // used to find the num list entries that are of concern
-	wikiGenHeading *regexp.Regexp = regexp.MustCompile(`(\s=+|^=+)[\w\s]+`)            // generic heading search
+	langRegex      *regexp.Regexp
+	wikiLang       *regexp.Regexp                                           // most languages are a single word; there are some that are multiple words
+	wikiLexM       *regexp.Regexp                                           // lexical category could be multi-word (e.g. "Proper Noun") match for multi-etymology
+	wikiLexS       *regexp.Regexp                                           // lexical category match for single etymology
+	wikiEtymologyS *regexp.Regexp                                           // check for singular etymology
+	wikiEtymologyM *regexp.Regexp                                           // these heading may or may not have a number designation
+	wikiNumListAny *regexp.Regexp = regexp.MustCompile(`\s##?[\*:]*? `)     // used to find all num list indices
+	wikiNumList    *regexp.Regexp = regexp.MustCompile(`\s#[^:\*] `)        // used to find the num list entries that are of concern
+	wikiGenHeading *regexp.Regexp = regexp.MustCompile(`(\s=+|^=+)[\w\s]+`) // generic heading search
 	wikiNewLine    *regexp.Regexp = regexp.MustCompile(`\n`)
 	wikiBracket    *regexp.Regexp = regexp.MustCompile(`[\[\]]+`)
 	wikiWordAlt    *regexp.Regexp = regexp.MustCompile(`\[\[([\w\s]+)\|[\w\s]+\]\]`)
@@ -47,13 +75,11 @@ var (
 	// other stuff
 	language        string             = ""
 	logger          *colorlog.ColorLog = &colorlog.ColorLog{}
-	lexicalCategory []string           = []string{"Proper noun", "Noun", "Adjective", "Adverb",
-		"Verb", "Article", "Particle", "Conjunction",
-		"Pronoun", "Determiner", "Interjection", "Morpheme",
-		"Numeral", "Preposition", "Postposition"}
-	minLetters int  = 0
-	maxDefs    int  = 0
-	rmAccents  bool = false
+	lexicalCategory []string
+	minLetters      int    = 0
+	maxDefs         int    = 0
+	rmAccents       bool   = false
+	dictLang        string = ""
 )
 
 type WikiData struct {
@@ -107,6 +133,7 @@ func main() {
 	minLettersArg := flag.Int("min_letters", 0, "Minimum number of letter to keep a word")
 	maxDefsArg := flag.Int("max_defs", 0, "Maximum number of definition to keep for a word for an etymology")
 	rmAccentsArg := flag.Bool("rm_accents", false, "Remove accents from word")
+	dictLangArg := flag.String("dict_lang", "en", "Wiktionary dictionary lang")
 	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
 	flag.Parse()
 
@@ -128,21 +155,25 @@ func main() {
 	minLetters = *minLettersArg
 	maxDefs = *maxDefsArg
 	rmAccents = *rmAccentsArg
+	dictLang = *dictLangArg
 
 	start_time := time.Now()
 	logger.Info("+--------------------------------------------------\n")
-	logger.Info("| Start Time    :    %v\n", start_time)
-	logger.Info("| Parse File    :    %s\n", *iFile)
-	logger.Info("| Database      :    %s\n", *db)
-	logger.Info("| Language      :    %s\n", language)
-	logger.Info("| Cache File    :    %s\n", *cacheFile)
-	logger.Info("| Use Cache     :    %t\n", *useCache)
-	logger.Info("| Make Cache    :    %t\n", *makeCache)
-	logger.Info("| Verbose       :    %t\n", *verbose)
-	logger.Info("| Purge         :    %t\n", *purge)
+	logger.Info("| Start Time    	:    %v\n", start_time)
+	logger.Info("| Parse File    	:    %s\n", *iFile)
+	logger.Info("| Database      	:    %s\n", *db)
+	logger.Info("| Language      	:    %s\n", language)
+	logger.Info("| Dictionary lang	:    %s\n", dictLang)
+	logger.Info("| Cache File    	:    %s\n", *cacheFile)
+	logger.Info("| Use Cache     	:    %t\n", *useCache)
+	logger.Info("| Make Cache    	:    %t\n", *makeCache)
+	logger.Info("| Verbose       	:    %t\n", *verbose)
+	logger.Info("| Purge         	:    %t\n", *purge)
 	logger.Info("+--------------------------------------------------\n")
 
 	logger.Debug("NOTE: input language should be provided as a proper noun. (e.g. English, French, West Frisian, etc.)\n")
+
+	setLangVars()
 
 	data := &WikiData{}
 	if *useCache {
@@ -346,6 +377,12 @@ func parseByEtymologies(word string, et_list [][]int, text []byte) []*Insert {
 		for j := 0; j < lexcat_idx_size; j++ {
 			jth_idx := adjustIndexLW(lexcat_idx[j][0], section)
 			lexcat := string(section[jth_idx+4 : lexcat_idx[j][1]-4])
+			//Using regex
+			match := wikiLexM.FindStringSubmatch(string(section[jth_idx:lexcat_idx[j][1]]))
+			//If match and group captured
+			if len(match) == 2 {
+				lexcat = match[1]
+			}
 			logger.Debug("parseByEtymologies> [%2d] lexcat: %s\n", j, lexcat)
 
 			if !stringInSlice(lexcat, lexicalCategory) {
@@ -384,7 +421,12 @@ func parseByLexicalCategory(word string, lex_list [][]int, text []byte) []*Inser
 		ins := &Insert{Word: word, Etymology: 0, CatDefs: make(map[string][]string)}
 		ith_idx := adjustIndexLW(lex_list[i][0], text)
 		lexcat := string(text[ith_idx+3 : lex_list[i][1]-3])
-
+		//Using regex
+		match := wikiLexS.FindStringSubmatch(string(text[ith_idx:lex_list[i][1]]))
+		//If match and group captured
+		if len(match) == 2 {
+			lexcat = match[1]
+		}
 		logger.Debug("parseByLexicalCategory> [%2d] working on lexcat '%s'\n", i, lexcat)
 
 		if !stringInSlice(lexcat, lexicalCategory) {
@@ -511,8 +553,8 @@ func getLanguageSection(text []byte) []byte {
 		heading := string(text[indices[i][0]:indices[i][1]])
 		logger.Debug("Checking heading: %s\n", heading)
 
-		if heading != fmt.Sprintf("==%s==", language) {
-			logger.Debug("'%s' != '==%s=='\n", heading, language)
+		if langRegex.MatchString(heading) {
+			logger.Debug("'%s' != '%s'\n", heading, langRegex.String())
 			continue
 		}
 
@@ -531,13 +573,11 @@ func getLanguageSection(text []byte) []byte {
 // filter out the pages that are not words in the desired language
 // also filter word shorter than minLetters
 func filterPages(wikidata *WikiData) {
-	engCheck := regexp.MustCompile(fmt.Sprintf(`==%s==`, language))
 	spaceCheck := regexp.MustCompile(`[:0-9]`)
-
 	skipCount := 0
 	i := 0
 	for i < len(wikidata.Pages) {
-		if !engCheck.MatchString(wikidata.Pages[i].Revisions[0].Text) ||
+		if !langRegex.MatchString(wikidata.Pages[i].Revisions[0].Text) ||
 			spaceCheck.MatchString(wikidata.Pages[i].Title) ||
 
 			(minLetters > 0 && len([]rune(wikidata.Pages[i].Title)) < minLetters) {
@@ -677,4 +717,25 @@ func removeAccents(str string) (string, error) {
 		return "", err
 	}
 	return strings.ToLower(s), err
+}
+
+func setLangVars() {
+	if _, exists := regexLocal[dictLang]; !exists {
+		logger.Error("Dictionary lang not known\n")
+		os.Exit(1)
+	}
+	lexicalCategory = lexicalLocal[dictLang]
+	wikiLang = regexp.MustCompile(regexLocal[dictLang]["wikiLang"])
+	wikiLexM = regexp.MustCompile(regexLocal[dictLang]["wikiLexM"])
+	wikiLexS = regexp.MustCompile(regexLocal[dictLang]["wikiLexS"])
+	wikiEtymologyS = regexp.MustCompile(regexLocal[dictLang]["wikiEtymologyS"])
+	wikiEtymologyM = regexp.MustCompile(regexLocal[dictLang]["wikiEtymologyM"])
+	langRegex = regexp.MustCompile(fmt.Sprintf(`==%s==`, language))
+
+	//Not clean
+	if dictLang == `fr` {
+		if language == "French" || language == "fr" {
+			langRegex = regexp.MustCompile(fmt.Sprintf(`== {{langue\|%s}} ==`, language))
+		}
+	}
 }
