@@ -72,8 +72,8 @@ var (
 	wikiTplt       *regexp.Regexp = regexp.MustCompile(`\{\{|\}\}`) // open close template bounds "{{ ... }}"
 	wikiItalic     *regexp.Regexp = regexp.MustCompile(`\'\'`)
 	wikiExample    *regexp.Regexp
-	//wikiRefs       *regexp.Regexp = regexp.MustCompile(`\<ref\>(.*?)\</ref\>`)
-	htmlBreak *regexp.Regexp = regexp.MustCompile(`\<br\>`)
+	wikiRefs       *regexp.Regexp = regexp.MustCompile(`\<ref.*?\>(.*?)\</ref\>`)
+	htmlBreak      *regexp.Regexp = regexp.MustCompile(`\<br\>`)
 
 	// other stuff
 	language        string             = ""
@@ -277,6 +277,9 @@ func pageWorker(id int, wg *sync.WaitGroup, pages []Page, dbh *sql.DB) {
 
 		//text = wikiLabel.ReplaceAll(text, []byte("(${2})"))
 		//logger.Debug("Label size: %d\n", len(text))
+
+		text = wikiRefs.ReplaceAll(text, []byte(""))
+		logger.Debug("wikiRefs size: %d\n", len(text))
 
 		text = wikiExample.ReplaceAll(text, []byte(""))
 		logger.Debug("Example size: %d\n", len(text))
