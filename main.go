@@ -33,13 +33,15 @@ var (
 			"wikiLexS":       `(?:\s===|^===)([\w\s]+)===`,
 			"wikiEtymologyS": `(\s===|^===)Etymology===`,
 			"wikiEtymologyM": `(\s===|^===)Etymology \d+===`,
+			"wikiExample":    `\{\{examples(.+)\}\}`,
 		},
 		"fr": {
-			"wikiLang":       `(\s==|^==) {{langue\|[\w]+}} ==`,                       //ie : == {{langue|fr}} ==
-			"wikiLexM":       `(?:\s====|^====) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ====`, //ie : ==== {{S|nom|frm|num=1}} ====
-			"wikiLexS":       `(?:\s===|^===) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ===`,    //ie : === {{S|nom|frm|num=1}} ===
-			"wikiEtymologyS": `(\s===|^===) {{S\|étymologie}} ===`,                    //ie : === {{S|étymologie}} ===
+			"wikiLang":       `(\s==|^==) {{langue\|[\w]+}} ==`,                    //ie : == {{langue|fr}} ==
+			"wikiLexM":       `(?:\s===|^===) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ===`, //ie : === {{S|nom|frm|num=1}} ===
+			"wikiLexS":       `(?:\s===|^===) {{S\|([\w\s]+)\|(?:\w\|?\=?)+}} ===`, //ie : === {{S|nom|frm|num=1}} ===
+			"wikiEtymologyS": `(\s===|^===) {{S\|étymologie}} ===`,                 //ie : === {{S|étymologie}} ===
 			"wikiEtymologyM": `(\s====|^====) {{S\|étymologie}} ====`,
+			"wikiExample":    `\{\{exemple(.+)\}\}`,
 		},
 	}
 	lexicalLocal map[string][]string = map[string][]string{
@@ -64,11 +66,12 @@ var (
 	wikiGenHeading *regexp.Regexp = regexp.MustCompile(`(\s=+|^=+)[\w\s]+`) // generic heading search
 	wikiNewLine    *regexp.Regexp = regexp.MustCompile(`\n`)
 	wikiBracket    *regexp.Regexp = regexp.MustCompile(`[\[\]]+`)
-	wikiWordAlt    *regexp.Regexp = regexp.MustCompile(`\[\[([\w\s]+)\|[\w\s]+\]\]`)
+	wikiWordAlt    *regexp.Regexp = regexp.MustCompile(`\[\[([\p{L}\s]+)\|[\p{L}\s]+\]\]`)
 	wikiModifier   *regexp.Regexp = regexp.MustCompile(`\{\{m\|\w+\|([\w\s]+)\}\}`)
 	wikiLabel      *regexp.Regexp = regexp.MustCompile(`\{\{(la?b?e?l?)\|\w+\|([\w\s\|'",;\(\)_\[\]-]+)\}\}`)
 	wikiTplt       *regexp.Regexp = regexp.MustCompile(`\{\{|\}\}`) // open close template bounds "{{ ... }}"
-	wikiExample    *regexp.Regexp = regexp.MustCompile(`\{\{examples(.+)\}\}`)
+	wikiItalic     *regexp.Regexp = regexp.MustCompile(`\'\'`)
+	wikiExample    *regexp.Regexp
 	//wikiRefs       *regexp.Regexp = regexp.MustCompile(`\<ref\>(.*?)\</ref\>`)
 	htmlBreak *regexp.Regexp = regexp.MustCompile(`\<br\>`)
 
@@ -147,10 +150,6 @@ func main() {
 		logger.SetLogLevel(colorlog.Ldebug)
 	}
 
-	if len(*excludedCats) > 0 {
-		lexicalCategory = findAndDelete(lexicalCategory, *excludedCats)
-	}
-
 	language = *lang
 	minLetters = *minLettersArg
 	maxDefs = *maxDefsArg
@@ -174,6 +173,10 @@ func main() {
 	logger.Debug("NOTE: input language should be provided as a proper noun. (e.g. English, French, West Frisian, etc.)\n")
 
 	setLangVars()
+
+	if len(*excludedCats) > 0 {
+		lexicalCategory = findAndDelete(lexicalCategory, *excludedCats)
+	}
 
 	data := &WikiData{}
 	if *useCache {
@@ -283,6 +286,9 @@ func pageWorker(id int, wg *sync.WaitGroup, pages []Page, dbh *sql.DB) {
 
 		text = htmlBreak.ReplaceAll(text, []byte(" "))
 		logger.Debug("Html Break size: %d\n", len(text))
+
+		text = wikiItalic.ReplaceAll(text, []byte(""))
+		logger.Debug("wikiItalic size: %d\n", len(text))
 
 		text_size := len(text)
 		logger.Debug("Starting Size of corpus: %d bytes\n", text_size)
@@ -553,7 +559,7 @@ func getLanguageSection(text []byte) []byte {
 		heading := string(text[indices[i][0]:indices[i][1]])
 		logger.Debug("Checking heading: %s\n", heading)
 
-		if langRegex.MatchString(heading) {
+		if !langRegex.MatchString(heading) {
 			logger.Debug("'%s' != '%s'\n", heading, langRegex.String())
 			continue
 		}
@@ -730,6 +736,7 @@ func setLangVars() {
 	wikiLexS = regexp.MustCompile(regexLocal[dictLang]["wikiLexS"])
 	wikiEtymologyS = regexp.MustCompile(regexLocal[dictLang]["wikiEtymologyS"])
 	wikiEtymologyM = regexp.MustCompile(regexLocal[dictLang]["wikiEtymologyM"])
+	wikiExample = regexp.MustCompile(regexLocal[dictLang]["wikiExample"])
 	langRegex = regexp.MustCompile(fmt.Sprintf(`==%s==`, language))
 
 	//Not clean
