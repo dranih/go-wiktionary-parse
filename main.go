@@ -55,25 +55,26 @@ var (
 			"préposition", "suffixe", "préfixe", "symbole"},
 	}
 	// regex pointers
-	langRegex      *regexp.Regexp
-	wikiLang       *regexp.Regexp                                           // most languages are a single word; there are some that are multiple words
-	wikiLexM       *regexp.Regexp                                           // lexical category could be multi-word (e.g. "Proper Noun") match for multi-etymology
-	wikiLexS       *regexp.Regexp                                           // lexical category match for single etymology
-	wikiEtymologyS *regexp.Regexp                                           // check for singular etymology
-	wikiEtymologyM *regexp.Regexp                                           // these heading may or may not have a number designation
-	wikiNumListAny *regexp.Regexp = regexp.MustCompile(`\s##?[\*:]*? `)     // used to find all num list indices
-	wikiNumList    *regexp.Regexp = regexp.MustCompile(`\s#[^:\*] `)        // used to find the num list entries that are of concern
-	wikiGenHeading *regexp.Regexp = regexp.MustCompile(`(\s=+|^=+)[\w\s]+`) // generic heading search
-	wikiNewLine    *regexp.Regexp = regexp.MustCompile(`\n`)
-	wikiBracket    *regexp.Regexp = regexp.MustCompile(`[\[\]]+`)
-	wikiWordAlt    *regexp.Regexp = regexp.MustCompile(`\[\[([\p{L}\s]+)\|[\p{L}\s]+\]\]`)
-	wikiModifier   *regexp.Regexp = regexp.MustCompile(`\{\{m\|\w+\|([\w\s]+)\}\}`)
-	wikiLabel      *regexp.Regexp = regexp.MustCompile(`\{\{(la?b?e?l?)\|\w+\|([\w\s\|'",;\(\)_\[\]-]+)\}\}`)
-	wikiTplt       *regexp.Regexp = regexp.MustCompile(`\{\{|\}\}`) // open close template bounds "{{ ... }}"
-	wikiItalic     *regexp.Regexp = regexp.MustCompile(`\'\'`)
-	wikiExample    *regexp.Regexp
-	wikiRefs       *regexp.Regexp = regexp.MustCompile(`\<ref.*?\>(.*?)\</ref\>`)
-	htmlBreak      *regexp.Regexp = regexp.MustCompile(`\<br\>`)
+	langRegex        *regexp.Regexp
+	wikiLang         *regexp.Regexp                                           // most languages are a single word; there are some that are multiple words
+	wikiLexM         *regexp.Regexp                                           // lexical category could be multi-word (e.g. "Proper Noun") match for multi-etymology
+	wikiLexS         *regexp.Regexp                                           // lexical category match for single etymology
+	wikiEtymologyS   *regexp.Regexp                                           // check for singular etymology
+	wikiEtymologyM   *regexp.Regexp                                           // these heading may or may not have a number designation
+	wikiNumListAny   *regexp.Regexp = regexp.MustCompile(`\s##?[\*:]*? `)     // used to find all num list indices
+	wikiNumList      *regexp.Regexp = regexp.MustCompile(`\s#[^:\*] `)        // used to find the num list entries that are of concern
+	wikiGenHeading   *regexp.Regexp = regexp.MustCompile(`(\s=+|^=+)[\w\s]+`) // generic heading search
+	wikiNewLine      *regexp.Regexp = regexp.MustCompile(`\n`)
+	wikiBracket      *regexp.Regexp = regexp.MustCompile(`[\[\]]+`)
+	wikiWordAlt      *regexp.Regexp = regexp.MustCompile(`\[\[([\p{L}\s]+)\|[\p{L}\s]+\]\]`)
+	wikiModifier     *regexp.Regexp = regexp.MustCompile(`\{\{m\|\w+\|([\w\s]+)\}\}`)
+	wikiLabel        *regexp.Regexp = regexp.MustCompile(`\{\{(la?b?e?l?)\|\w+\|([\w\s\|'",;\(\)_\[\]-]+)\}\}`)
+	wikiTplt         *regexp.Regexp = regexp.MustCompile(`\{\{|\}\}`) // open close template bounds "{{ ... }}"
+	wikiItalic       *regexp.Regexp = regexp.MustCompile(`\'\'`)
+	wikiExample      *regexp.Regexp
+	wikiRefs         *regexp.Regexp = regexp.MustCompile(`\<ref.*?\>(.*?)\</ref\>`)
+	htmlBreak        *regexp.Regexp = regexp.MustCompile(`\<br\>`)
+	singleWordsRegex *regexp.Regexp = regexp.MustCompile(`^\p{L}+$`)
 
 	// other stuff
 	language        string             = ""
@@ -84,6 +85,7 @@ var (
 	maxEtys         int    = 0
 	rmAccents       bool   = false
 	dictLang        string = ""
+	singleWords     bool   = false
 )
 
 type WikiData struct {
@@ -139,6 +141,7 @@ func main() {
 	maxEtysArg := flag.Int("max_etys", 0, "Maximum number of etymologies to keep for a word")
 	rmAccentsArg := flag.Bool("rm_accents", false, "Remove accents from word")
 	dictLangArg := flag.String("dict_lang", "en", "Wiktionary dictionary lang")
+	singleWordsArg := flag.Bool("single_words", false, "Remove entries composed of several words (ie : 'group ring' or 'pre-school'")
 	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
 	flag.Parse()
 
@@ -158,6 +161,7 @@ func main() {
 	maxEtys = *maxEtysArg
 	rmAccents = *rmAccentsArg
 	dictLang = *dictLangArg
+	singleWords = *singleWordsArg
 
 	start_time := time.Now()
 	logger.Info("+--------------------------------------------------\n")
@@ -594,8 +598,8 @@ func filterPages(wikidata *WikiData) {
 	for i < len(wikidata.Pages) {
 		if !langRegex.MatchString(wikidata.Pages[i].Revisions[0].Text) ||
 			spaceCheck.MatchString(wikidata.Pages[i].Title) ||
-
-			(minLetters > 0 && len([]rune(wikidata.Pages[i].Title)) < minLetters) {
+			(minLetters > 0 && len([]rune(wikidata.Pages[i].Title)) < minLetters) ||
+			(singleWords && !singleWordsRegex.MatchString(wikidata.Pages[i].Title)) {
 			// remove the entry from the array
 			wikidata.Pages[i] = wikidata.Pages[len(wikidata.Pages)-1]
 			wikidata.Pages = wikidata.Pages[:len(wikidata.Pages)-1]
