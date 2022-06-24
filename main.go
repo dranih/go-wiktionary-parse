@@ -81,6 +81,7 @@ var (
 	lexicalCategory []string
 	minLetters      int    = 0
 	maxDefs         int    = 0
+	maxEtys         int    = 0
 	rmAccents       bool   = false
 	dictLang        string = ""
 )
@@ -135,6 +136,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Use verbose logging")
 	minLettersArg := flag.Int("min_letters", 0, "Minimum number of letter to keep a word")
 	maxDefsArg := flag.Int("max_defs", 0, "Maximum number of definition to keep for a word for an etymology")
+	maxEtysArg := flag.Int("max_etys", 0, "Maximum number of etymologies to keep for a word")
 	rmAccentsArg := flag.Bool("rm_accents", false, "Remove accents from word")
 	dictLangArg := flag.String("dict_lang", "en", "Wiktionary dictionary lang")
 	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
@@ -153,6 +155,7 @@ func main() {
 	language = *lang
 	minLetters = *minLettersArg
 	maxDefs = *maxDefsArg
+	maxEtys = *maxEtysArg
 	rmAccents = *rmAccentsArg
 	dictLang = *dictLangArg
 
@@ -412,6 +415,9 @@ func parseByEtymologies(word string, et_list [][]int, text []byte) []*Insert {
 			ins.CatDefs[lexcat] = definitions
 		}
 		inserts = append(inserts, ins)
+		if maxEtys > 0 && i+1 == maxEtys {
+			break
+		}
 	}
 
 	return inserts
