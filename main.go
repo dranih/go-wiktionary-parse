@@ -25,6 +25,32 @@ import (
 )
 
 var (
+	//Table definition
+	tableDef map[bool]string = map[bool]string{
+		false: `CREATE TABLE IF NOT EXISTS dictionary
+		(
+			id INTEGER PRIMARY KEY,
+			word TEXT,
+			lexical_category TEXT,
+			etymology_no INTEGER,
+			definition_no INTEGER,
+			definition TEXT
+		)`,
+		true: `CREATE TABLE IF NOT EXISTS dictionary
+		(
+			id INTEGER PRIMARY KEY,
+			word TEXT,
+			lexical_category TEXT,
+			definition TEXT
+		)`,
+	}
+	insertQuery map[bool]string = map[bool]string{
+		false: `INSERT INTO dictionary (word, lexical_category, etymology_no, definition_no, definition)
+		VALUES (?, ?, ?, ?, ?)`,
+		true: `INSERT INTO dictionary (word, lexical_category, definition)
+		VALUES (?, ?, ?)`,
+	}
+
 	//Localisation
 	regexLocal map[string]map[string]string = map[string]map[string]string{
 		"en": {
@@ -86,6 +112,7 @@ var (
 	rmAccents       bool   = false
 	dictLang        string = ""
 	singleWords     bool   = false
+	minimal         bool   = false
 )
 
 type WikiData struct {
@@ -142,6 +169,7 @@ func main() {
 	rmAccentsArg := flag.Bool("rm_accents", false, "Remove accents from word")
 	dictLangArg := flag.String("dict_lang", "en", "Wiktionary dictionary lang")
 	singleWordsArg := flag.Bool("single_words", false, "Remove entries composed of several words (ie : 'group ring' or 'pre-school'")
+	minimalArg := flag.Bool("minimal", false, "Remove index, etymology_no and definition_no columns")
 	flag.Var(excludedCats, "exclude_cat", "Lexical category to exclude")
 	flag.Parse()
 
@@ -162,6 +190,7 @@ func main() {
 	rmAccents = *rmAccentsArg
 	dictLang = *dictLangArg
 	singleWords = *singleWordsArg
+	minimal = *minimalArg
 
 	start_time := time.Now()
 	logger.Info("+--------------------------------------------------\n")
@@ -175,6 +204,7 @@ func main() {
 	logger.Info("| Make Cache    	:    %t\n", *makeCache)
 	logger.Info("| Verbose       	:    %t\n", *verbose)
 	logger.Info("| Purge         	:    %t\n", *purge)
+	logger.Info("| Minimal         	:    %t\n", minimal)
 	logger.Info("+--------------------------------------------------\n")
 
 	logger.Debug("NOTE: input language should be provided as a proper noun. (e.g. English, French, West Frisian, etc.)\n")
@@ -210,23 +240,17 @@ func main() {
 	check(err)
 	dbh.SetMaxOpenConns(1)
 
-	sth, err := dbh.Prepare(`CREATE TABLE IF NOT EXISTS dictionary
-                             (
-                                 id INTEGER PRIMARY KEY,
-                                 word TEXT,
-                                 lexical_category TEXT,
-                                 etymology_no INTEGER,
-                                 definition_no INTEGER,
-                                 definition TEXT
-                             )`)
+	sth, err := dbh.Prepare(tableDef[minimal])
 	check(err)
 	sth.Exec()
 
-	sth, err = dbh.Prepare(`CREATE INDEX IF NOT EXISTS dict_word_idx
+	if !minimal {
+		sth, err = dbh.Prepare(`CREATE INDEX IF NOT EXISTS dict_word_idx
                             ON dictionary (word, lexical_category, etymology_no, definition_no)`)
 
-	check(err)
-	sth.Exec()
+		check(err)
+		sth.Exec()
+	}
 
 	filterPages(data)
 	logger.Info("Post filter page count: %d\n", len(data.Pages))
@@ -336,15 +360,13 @@ func pageWorker(id int, wg *sync.WaitGroup, pages []Page, dbh *sql.DB) {
 
 func performInserts(dbh *sql.DB, inserts []*Insert) int {
 	ins_count := 0
-	query := `INSERT INTO dictionary (word, lexical_category, etymology_no, definition_no, definition)
-              VALUES (?, ?, ?, ?, ?)`
 
 	logger.Debug("performInserts> Preparing insert query...\n")
 	tx, err := dbh.Begin()
 	check(err)
 	defer tx.Rollback()
 
-	sth, err := tx.Prepare(query)
+	sth, err := tx.Prepare(insertQuery[minimal])
 	check(err)
 	defer sth.Close()
 
@@ -359,7 +381,12 @@ func performInserts(dbh *sql.DB, inserts []*Insert) int {
 				}
 				logger.Debug("performInserts> Inserting values: word=>'%s', lexical category=>'%s', et_no=>'%d', def_no=>'%d', def=>'%s'\n",
 					ins.Word, category, ins.Etymology, def_no, def)
-				_, err := sth.Exec(ins.Word, category, ins.Etymology, def_no, def)
+				var err error
+				if !minimal {
+					_, err = sth.Exec(ins.Word, category, ins.Etymology, def_no, def)
+				} else {
+					_, err = sth.Exec(ins.Word, category, def)
+				}
 				check(err)
 				ins_count++
 			}
