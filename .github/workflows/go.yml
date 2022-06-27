@@ -19,19 +19,19 @@ jobs:
     - name: Test
       run: go test -v ./...
       
-    - name: Build dictionaries
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        wget -q https://dumps.wikimedia.org/enwiktionary/latest/enwiktionary-latest-pages-articles.xml.bz2
-        bzip2 -d enwiktionary-latest-pages-articles.xml.bz2
-        ./go-wikitionary-parse -file enwiktionary-latest-pages-articles.xml -database en_minimal.db -exclude_cat "Proper noun" -min_letters 3 -max_defs 1 -rm_accents -max_etys 1 -single_words -minimal
-        tar -czvf en_minimal.tar.gz en_minimal.db
-        tar -czvf go-wikitionary-parse-linux-amd64.tar.gz go-wikitionary-parse
-    
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: |
-          go-wikitionary-parse-linux-amd64.tar.gz
-          en_minimal.tar.gz
+#    - name: Build dictionaries
+#      if: startsWith(github.ref, 'refs/tags/')
+#      run: |
+#        wget -q https://dumps.wikimedia.org/enwiktionary/latest/enwiktionary-latest-pages-articles.xml.bz2
+#        bzip2 -d enwiktionary-latest-pages-articles.xml.bz2
+#        ./go-wikitionary-parse -file enwiktionary-latest-pages-articles.xml -database en_minimal.db -exclude_cat "Proper noun" -min_letters 3 -max_defs 1 -rm_accents -max_etys 1 -single_words -minimal
+#        tar -czvf en_minimal.tar.gz en_minimal.db
+#        tar -czvf go-wikitionary-parse-linux-amd64.tar.gz go-wikitionary-parse
+#    
+#    - name: Release
+#      uses: softprops/action-gh-release@v1
+#      if: startsWith(github.ref, 'refs/tags/')
+#      with:
+#        files: |
+#          go-wikitionary-parse-linux-amd64.tar.gz
+#          en_minimal.tar.gz
