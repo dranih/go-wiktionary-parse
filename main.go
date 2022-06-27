@@ -375,7 +375,7 @@ func performInserts(dbh *sql.DB, inserts []*Insert) int {
 		for key, val := range ins.CatDefs {
 			category := key
 			for def_no, def := range val {
-				if def_no >= maxDefs {
+				if maxDefs > 0 && def_no >= maxDefs {
 					logger.Debug("Skipping definition (def_no > max_defs argument)\n")
 					continue
 				}
